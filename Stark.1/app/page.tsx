@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Rocket, Users, Building2, Zap, Shield } from "lucide-react";
+import StartupMarquee from "@/components/StartupMarquee";
+import PublicIdeaAnalyzerHero from "@/components/PublicIdeaAnalyzerHero";
 
 export default function Home() {
   return (
@@ -62,6 +64,24 @@ export default function Home() {
               Sign In
             </Link>
           </div>
+        </div>
+      </section>
+
+      <PublicIdeaAnalyzerHero />
+
+      {/* Startup Marquee */}
+      <section className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 pb-16">
+        <div className="glass rounded-2xl border border-slate-200/40 p-6 sm:p-8">
+          <div className="text-center mb-6">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
+              Innovative Startups from Azerbaijan
+            </h2>
+            <p className="mt-2 text-slate-500 text-sm sm:text-base">
+              A curated showcase of featured companies building the future.
+            </p>
+          </div>
+
+          <StartupMarquee />
         </div>
       </section>
 

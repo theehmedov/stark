@@ -57,7 +57,7 @@ export async function middleware(request: NextRequest) {
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, sub_role')
       .eq('id', user.id)
       .single()
 
@@ -74,16 +74,33 @@ export async function middleware(request: NextRequest) {
       return response
     }
 
+    // Special-case: allow judging workspace for judges and jury members.
+    if (path.startsWith('/dashboard/judge')) {
+      const isJudge = profile.role === 'judge' || (profile.role === 'individual' && profile.sub_role === 'jury')
+      if (isJudge) {
+        return response
+      }
+    }
+
     const roleBasedPaths: Record<string, string> = {
       admin: '/dashboard/admin',
+      judge: '/dashboard/judge',
       startup: '/dashboard/startup',
       investor: '/dashboard/investor',
       it_company: '/dashboard/it-company',
       individual: '/dashboard/individual',
     }
 
-    const expectedPath = roleBasedPaths[profile.role]
+    const normalizedRole = profile.role?.replace(/-/g, '_')
+    const expectedPath = normalizedRole ? roleBasedPaths[normalizedRole] : undefined
 
+    // If role is unknown/null, allow through and let the app handle it.
+    if (!expectedPath) {
+      console.log("[MIDDLEWARE] Unknown role — allow through:", profile.role)
+      return response
+    }
+
+    // Only redirect when the user hits /dashboard root, or tries to access another role's base path.
     if (path === '/dashboard' || !path.startsWith(expectedPath)) {
       console.log("[MIDDLEWARE] Redirecting to", expectedPath)
       return redirectWithCookies(expectedPath)
@@ -106,8 +123,12 @@ export async function middleware(request: NextRequest) {
         it_company: '/dashboard/it-company',
         individual: '/dashboard/individual',
       }
-      console.log("[MIDDLEWARE] Authenticated user on /login — redirect to", roleBasedPaths[profile.role])
-      return redirectWithCookies(roleBasedPaths[profile.role])
+      const normalizedRole = profile.role?.replace(/-/g, '_')
+      const target = normalizedRole ? roleBasedPaths[normalizedRole] : undefined
+      if (target) {
+        console.log("[MIDDLEWARE] Authenticated user on /login — redirect to", target)
+        return redirectWithCookies(target)
+      }
     }
   }
 

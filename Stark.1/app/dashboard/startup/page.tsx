@@ -28,6 +28,8 @@ export default async function StartupDashboard() {
     redirect("/dashboard/startup/setup")
   }
 
+  const startupId = profile?.startup_id || null
+
   return (
     <div>
       {/* Header */}
@@ -36,6 +38,11 @@ export default async function StartupDashboard() {
           Welcome back, {profile?.full_name?.split(" ")[0]}
         </h2>
         <p className="text-slate-500">Manage your startup profile and connect with investors</p>
+        {startupId && (
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-navy-50 border border-navy-200 px-3 py-1">
+            <span className="text-xs font-semibold text-navy-700">ID: {startupId}</span>
+          </div>
+        )}
       </div>
 
       {/* Bento Stats */}

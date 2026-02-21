@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
-import { LogOut, Zap, Shield, Rocket, Users, Building2, Compass, UserCircle } from "lucide-react"
+import { LogOut, Zap, Shield, Rocket, Users, Building2, Compass, UserCircle, Gavel } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { revalidatePath } from "next/cache"
 import Link from "next/link"
@@ -84,6 +84,16 @@ export default async function DashboardLayout({
               <Compass className="w-4 h-4" />
               Explore
             </Link>
+
+            {profile?.role === "individual" && profile?.sub_role === "jury" && (
+              <Link
+                href="/dashboard/judge"
+                className="hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-navy-600 transition-colors"
+              >
+                <Gavel className="w-4 h-4" />
+                Judging
+              </Link>
+            )}
           </div>
 
           <div className="flex items-center gap-4">

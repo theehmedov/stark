@@ -1,125 +1,359 @@
-import { createClient } from "@/lib/supabase/server"
-import { TrendingUp, Rocket, Eye, Briefcase, ArrowUpRight, ArrowRight, Search, SlidersHorizontal, BarChart3 } from "lucide-react"
+"use client"
 
-export default async function InvestorDashboard() {
-  const supabase = await createClient()
+import { useEffect, useMemo, useRef, useState } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+type InvestorDetails = {
+  organization_name: string | null
+  website: string | null
+  investment_focus: string | null
+}
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user?.id)
-    .single()
+type ToastState = {
+  message: string
+  variant: "success" | "error"
+} | null
+
+const INVESTMENT_FOCUS_OPTIONS = [
+  "AI",
+  "Financial",
+  "Healthcare",
+  "Education",
+  "Sports",
+  "B2B SaaS",
+  "Cyber Security",
+] as const
+
+export default function InvestorDashboardPage() {
+  const supabase = useMemo(() => createClient(), [])
+
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState>(null)
+
+  const [userId, setUserId] = useState<string | null>(null)
+  const [roleAllowed, setRoleAllowed] = useState(false)
+  const [savedDetails, setSavedDetails] = useState<InvestorDetails | null>(null)
+
+  const [organizationName, setOrganizationName] = useState("")
+  const [website, setWebsite] = useState("")
+  const [selectedFocus, setSelectedFocus] = useState<Set<string>>(new Set())
+
+  const toastTimeoutRef = useRef<number | null>(null)
+
+  const showToast = (next: ToastState) => {
+    setToast(next)
+    if (!next) return
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
+    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 3000)
+  }
+
+  const parseFocus = (raw: string | null) => {
+    if (!raw) return new Set<string>()
+    const parts = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+    return new Set(parts)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const init = async () => {
+      setLoading(true)
+      setError(null)
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (cancelled) return
+
+      if (userError) {
+        console.error("[INVESTOR] auth.getUser error:", userError)
+        setError(userError.message)
+        setLoading(false)
+        return
+      }
+
+      if (!user) {
+        setError("Not authenticated")
+        setLoading(false)
+        return
+      }
+
+      setUserId(user.id)
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single()
+
+      if (cancelled) return
+
+      if (profileError) {
+        console.error("[INVESTOR] profile fetch error:", profileError)
+        setError(profileError.message)
+        setLoading(false)
+        return
+      }
+
+      if (profile?.role !== "investor") {
+        setRoleAllowed(false)
+        setLoading(false)
+        return
+      }
+
+      setRoleAllowed(true)
+
+      const { data: details, error: detailsError } = await supabase
+        .from("investor_details")
+        .select("organization_name, website, investment_focus")
+        .eq("user_id", user.id)
+        .maybeSingle()
+
+      if (cancelled) return
+
+      if (detailsError) {
+        console.error("[INVESTOR] investor_details fetch error:", detailsError)
+        setError(detailsError.message)
+        setSavedDetails(null)
+        setLoading(false)
+        return
+      }
+
+      if (details) {
+        const nextDetails: InvestorDetails = {
+          organization_name: details.organization_name ?? null,
+          website: details.website ?? null,
+          investment_focus: details.investment_focus ?? null,
+        }
+        setSavedDetails(nextDetails)
+        setOrganizationName(nextDetails.organization_name ?? "")
+        setWebsite(nextDetails.website ?? "")
+        setSelectedFocus(parseFocus(nextDetails.investment_focus))
+      } else {
+        setSavedDetails(null)
+      }
+
+      setLoading(false)
+    }
+
+    init()
+
+    return () => {
+      cancelled = true
+      if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
+    }
+  }, [])
+
+  const toggleFocus = (option: string) => {
+    setSelectedFocus((prev) => {
+      const next = new Set(prev)
+      if (next.has(option)) next.delete(option)
+      else next.add(option)
+      return next
+    })
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (!roleAllowed) return
+    if (!userId) {
+      setError("Not authenticated")
+      return
+    }
+
+    if (!organizationName.trim()) {
+      setError("Organization name is required")
+      return
+    }
+
+    const focusString = Array.from(selectedFocus).join(", ")
+
+    setSubmitting(true)
+    try {
+      const { data, error: insertError } = await supabase
+        .from("investor_details")
+        .insert({
+          user_id: userId,
+          organization_name: organizationName.trim(),
+          website: website.trim() ? website.trim() : null,
+          investment_focus: focusString,
+        })
+        .select("organization_name, website, investment_focus")
+        .single()
+
+      if (insertError) {
+        console.error("[INVESTOR] insert investor_details error:", insertError)
+        showToast({ message: insertError.message, variant: "error" })
+        return
+      }
+
+      const nextDetails: InvestorDetails = {
+        organization_name: data?.organization_name ?? null,
+        website: data?.website ?? null,
+        investment_focus: data?.investment_focus ?? null,
+      }
+      setSavedDetails(nextDetails)
+      showToast({ message: "Investor details saved", variant: "success" })
+    } catch (err) {
+      console.error("[INVESTOR] unexpected submit error:", err)
+      showToast({ message: "An unexpected error occurred", variant: "error" })
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-8">
-        <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 mb-1">
-          Welcome back, {profile?.full_name?.split(" ")[0]}
-        </h2>
-        <p className="text-slate-500">Discover promising startups and investment opportunities</p>
+    <div className="space-y-6">
+      {toast && (
+        <div
+          className={`fixed top-5 right-5 z-50 rounded-xl border px-4 py-3 text-sm shadow-lg ${
+            toast.variant === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-red-200 bg-red-50 text-red-800"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {toast.message}
+        </div>
+      )}
+
+      <div>
+        <h2 className="text-3xl font-extrabold tracking-tight text-slate-900">Investor Onboarding</h2>
+        <p className="text-slate-500">Set your organization details and investment focus.</p>
       </div>
 
-      {/* Bento Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="bento-card group">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gold-50 flex items-center justify-center">
-              <Briefcase className="w-5 h-5 text-gold-600" />
-            </div>
-            <ArrowUpRight className="w-4 h-4 text-slate-300" />
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900 mb-1">0</div>
-          <p className="text-sm text-slate-500 font-medium">Portfolio</p>
-          <p className="text-xs text-slate-400 mt-1">Active investments</p>
+      {loading ? (
+        <Card className="glass border border-slate-200/40">
+          <CardHeader>
+            <CardTitle>Loading</CardTitle>
+            <CardDescription>Fetching your profile and investor details...</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="py-6 text-sm text-slate-500">Loading...</div>
+          </CardContent>
+        </Card>
+      ) : !roleAllowed ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          This page is only available for users with the investor role.
         </div>
+      ) : savedDetails ? (
+        <Card className="glass border border-slate-200/40">
+          <CardHeader>
+            <CardTitle>Your Saved Details</CardTitle>
+            <CardDescription>These details are currently stored in investor_details.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-white/60 px-4 py-3">
+                <div className="text-xs font-semibold text-slate-500">Organization</div>
+                <div className="text-sm font-semibold text-slate-900">{savedDetails.organization_name ?? "-"}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white/60 px-4 py-3">
+                <div className="text-xs font-semibold text-slate-500">Website</div>
+                <div className="text-sm font-semibold text-slate-900">{savedDetails.website ?? "-"}</div>
+              </div>
+            </div>
 
-        <div className="bento-card group">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-10 h-10 rounded-xl bg-navy-50 flex items-center justify-center">
-              <Eye className="w-5 h-5 text-navy-600" />
+            <div className="rounded-xl border border-slate-200 bg-white/60 px-4 py-3">
+              <div className="text-xs font-semibold text-slate-500">Investment Focus</div>
+              <div className="text-sm font-semibold text-slate-900">{savedDetails.investment_focus ?? "-"}</div>
             </div>
-            <ArrowUpRight className="w-4 h-4 text-slate-300" />
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900 mb-1">0</div>
-          <p className="text-sm text-slate-500 font-medium">Startups Viewed</p>
-          <p className="text-xs text-slate-400 mt-1">This month</p>
-        </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="glass border border-slate-200/40">
+          <CardHeader>
+            <CardTitle>Complete your onboarding</CardTitle>
+            <CardDescription>Fill in the details below to set up your investor profile.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {error && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
 
-        <div className="bento-card group">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gold-50 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-gold-600" />
-            </div>
-            <ArrowUpRight className="w-4 h-4 text-slate-300" />
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900 mb-1">0</div>
-          <p className="text-sm text-slate-500 font-medium">Opportunities</p>
-          <p className="text-xs text-slate-400 mt-1">New this week</p>
-        </div>
-      </div>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="organization_name">Organization name</Label>
+                <Input
+                  id="organization_name"
+                  value={organizationName}
+                  onChange={(e) => setOrganizationName(e.target.value)}
+                  placeholder="Acme Ventures"
+                />
+              </div>
 
-      {/* Bottom Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Opportunities — wider */}
-        <div className="lg:col-span-2 bento-card flex flex-col">
-          <div className="mb-5">
-            <h3 className="text-lg font-bold text-slate-900">Investment Opportunities</h3>
-            <p className="text-sm text-slate-500 mt-0.5">Startups seeking funding</p>
-          </div>
-          <div className="flex-1 flex flex-col items-center justify-center text-center py-8">
-            <div className="w-14 h-14 rounded-2xl bg-gold-50 flex items-center justify-center mb-4">
-              <Rocket className="w-7 h-7 text-gold-300" />
-            </div>
-            <p className="text-sm font-medium text-slate-400">No opportunities yet</p>
-            <p className="text-xs text-slate-400 mt-1">Check back soon for new startups!</p>
-          </div>
-        </div>
+              <div className="space-y-2">
+                <Label htmlFor="website">Website (optional)</Label>
+                <Input
+                  id="website"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </div>
 
-        {/* Quick Actions — wider */}
-        <div className="lg:col-span-3 bento-card">
-          <div className="mb-5">
-            <h3 className="text-lg font-bold text-slate-900">Quick Actions</h3>
-            <p className="text-sm text-slate-500 mt-0.5">Manage your investment activities</p>
-          </div>
-          <div className="space-y-3">
-            <div className="group flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 hover:bg-gold-50/50 cursor-pointer transition-all duration-200">
-              <div className="w-10 h-10 rounded-xl bg-gold-50 flex items-center justify-center shrink-0">
-                <Search className="w-5 h-5 text-gold-600" />
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Investment focus</p>
+                  <p className="text-xs text-slate-500">Select one or more.</p>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {INVESTMENT_FOCUS_OPTIONS.map((opt) => (
+                    <label
+                      key={opt}
+                      className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white/60 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-900">{opt}</span>
+                      <input
+                        type="checkbox"
+                        checked={selectedFocus.has(opt)}
+                        onChange={() => toggleFocus(opt)}
+                        className="h-4 w-4"
+                      />
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-semibold text-slate-900">Browse Startups</h4>
-                <p className="text-xs text-slate-500 mt-0.5">Discover innovative startups in various sectors</p>
+
+              <div className="flex items-center gap-3">
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Saving..." : "Save details"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={submitting}
+                  onClick={() => {
+                    setOrganizationName("")
+                    setWebsite("")
+                    setSelectedFocus(new Set())
+                    setError(null)
+                  }}
+                >
+                  Clear
+                </Button>
               </div>
-              <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-gold-600 group-hover:translate-x-1 transition-all" />
-            </div>
-            <div className="group flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 hover:bg-navy-50/50 cursor-pointer transition-all duration-200">
-              <div className="w-10 h-10 rounded-xl bg-navy-50 flex items-center justify-center shrink-0">
-                <SlidersHorizontal className="w-5 h-5 text-navy-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-semibold text-slate-900">Update Investment Criteria</h4>
-                <p className="text-xs text-slate-500 mt-0.5">Set your investment preferences and interests</p>
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-navy-600 group-hover:translate-x-1 transition-all" />
-            </div>
-            <div className="group flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 hover:bg-gold-50/50 cursor-pointer transition-all duration-200">
-              <div className="w-10 h-10 rounded-xl bg-gold-50 flex items-center justify-center shrink-0">
-                <BarChart3 className="w-5 h-5 text-gold-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-semibold text-slate-900">View Analytics</h4>
-                <p className="text-xs text-slate-500 mt-0.5">Track your portfolio performance</p>
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-gold-600 group-hover:translate-x-1 transition-all" />
-            </div>
-          </div>
-        </div>
-      </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

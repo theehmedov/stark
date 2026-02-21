@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,11 +26,55 @@ export default function AdminDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState>(null)
 
+  const toastTimeoutRef = useRef<number | null>(null)
+
   const showToast = (next: ToastState) => {
     setToast(next)
     if (!next) return
-    setTimeout(() => setToast(null), 3000)
+
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current)
+    }
+    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 3000)
   }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchPendingOnce = async () => {
+      setLoading(true)
+      setError(null)
+
+      const { data, error: fetchError } = await supabase
+        .from("profiles")
+        .select("id, full_name, sub_role, cv_url, approval_status")
+        .eq("role", "individual")
+        .eq("approval_status", "pending")
+        .order("created_at", { ascending: false })
+
+      if (cancelled) return
+
+      if (fetchError) {
+        console.error("[ADMIN] fetchPending error:", fetchError)
+        setError(fetchError.message)
+        setPending([])
+        setLoading(false)
+        return
+      }
+
+      setPending((data ?? []) as PendingIndividual[])
+      setLoading(false)
+    }
+
+    fetchPendingOnce()
+
+    return () => {
+      cancelled = true
+      if (toastTimeoutRef.current) {
+        window.clearTimeout(toastTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const fetchPending = async () => {
     setLoading(true)
@@ -54,11 +98,6 @@ export default function AdminDashboardPage() {
     setPending((data ?? []) as PendingIndividual[])
     setLoading(false)
   }
-
-  useEffect(() => {
-    fetchPending()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const updateStatus = async (userId: string, status: "approved" | "rejected") => {
     setActionLoadingId(userId)

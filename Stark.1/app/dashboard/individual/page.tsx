@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
 
 export default async function IndividualDashboardPage() {
   const supabase = await createClient()
@@ -42,6 +44,22 @@ export default async function IndividualDashboardPage() {
       <p className="text-slate-500 mb-8">
         Your account has been approved. You can now participate in hackathons.
       </p>
+
+      {profile.sub_role === "jury" && (
+        <div className="glass rounded-2xl p-6 border border-amber-200/60 bg-amber-50/40 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-900">Jury Workspace</h3>
+              <p className="text-sm text-slate-600 mt-1">
+                Open your judging dashboard to evaluate startups.
+              </p>
+            </div>
+            <Link href="/dashboard/judge">
+              <Button className="w-full md:w-auto">Go to Judge Dashboard</Button>
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="glass rounded-2xl p-6 border border-slate-200/40">
